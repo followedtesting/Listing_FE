@@ -150,7 +150,7 @@ function App() {
       {/* Top Header */}
       <header className="app-header">
         <div className="brand-section">
-          <h1>Antigravity Job Tracker</h1>
+          <h1>Job Tracker</h1>
           <p>Scrape, monitor, and identify newly released job opportunities using Playwright</p>
         </div>
         <div className="global-actions">
