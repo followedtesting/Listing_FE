@@ -66,6 +66,35 @@
   box-shadow: none;
 }
 
+.btn-sequential {
+  background: linear-gradient(135deg, #0284C7 0%, #2563EB 100%);
+  color: var(--text-primary);
+  font-weight: 600;
+  padding: 12px 24px;
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-sequential:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 20px rgba(37, 99, 235, 0.4);
+}
+
+.btn-sequential:active {
+  transform: translateY(0);
+}
+
+.btn-sequential:disabled {
+  background: var(--bg-card);
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 .spinner {
   animation: spin 1s linear infinite;
   display: inline-block;

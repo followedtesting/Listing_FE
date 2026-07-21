@@ -6,6 +6,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 function App() {
   const [portals, setPortals] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [sequentialLoading, setSequentialLoading] = useState(false);
   const [scrapingStates, setScrapingStates] = useState({}); // Tracks scraping per portal_id
   const [activeDrawer, setActiveDrawer] = useState(null); // { portalId, type: 'current' | 'new', listings: [], title: '' }
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,10 +42,44 @@ function App() {
     fetchPortals();
   }, []);
 
+  // Trigger sequential scrape for all portals one by one and send email digest
+  const handleScrapeSequential = async () => {
+    setSequentialLoading(true);
+    showToast('Started sequential scraping of portals (one by one)...', 'info');
+
+    // Set all portals to scraping state
+    const scrapingInitial = {};
+    portals.forEach(p => {
+      scrapingInitial[p.id] = true;
+    });
+    setScrapingStates(scrapingInitial);
+
+    try {
+      const response = await fetch(`${API_BASE}/trigger-scrape-sequential`, {
+        method: 'POST',
+      });
+      if (!response.ok) throw new Error('Sequential scraping request failed');
+      const data = await response.json();
+
+      showToast(
+        `Sequential scrape completed! Scraped ${data.total_portals_scraped} portal(s), ${data.total_new_listings} new job(s). Email status: ${data.email_message}`,
+        'success'
+      );
+
+      await fetchPortals();
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to execute sequential scrape.', 'error');
+    } finally {
+      setSequentialLoading(false);
+      setScrapingStates({});
+    }
+  };
+
   // Trigger scrape for all portals
   const handleScrapeAll = async () => {
     setLoading(true);
-    showToast('Triggered scraping on all portals...', 'info');
+    showToast('Started sequential scraping of all portals (RAM optimized)...', 'info');
     
     // Set all portals to scraping state
     const scrapingInitial = {};
@@ -150,14 +185,29 @@ function App() {
       {/* Top Header */}
       <header className="app-header">
         <div className="brand-section">
-          <h1>Antigravity Job Tracker</h1>
+          <h1>Job Tracker</h1>
           <p>Scrape, monitor, and identify newly released job opportunities using Playwright</p>
         </div>
         <div className="global-actions">
           <button 
+            className="btn-sequential" 
+            onClick={handleScrapeSequential} 
+            disabled={loading || sequentialLoading || Object.values(scrapingStates).some(Boolean)}
+          >
+            {sequentialLoading ? (
+              <>
+                <span className="spinner">↻</span> Running Sequential Scan & Mail...
+              </>
+            ) : (
+              <>
+                🔄 Run Sequential Scan & Mail
+              </>
+            )}
+          </button>
+          <button 
             className="btn-primary" 
             onClick={handleScrapeAll} 
-            disabled={loading || Object.values(scrapingStates).some(Boolean)}
+            disabled={loading || sequentialLoading || Object.values(scrapingStates).some(Boolean)}
           >
             {loading ? (
               <>
