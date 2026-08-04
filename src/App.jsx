@@ -8,6 +8,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [sequentialLoading, setSequentialLoading] = useState(false);
   const [scrapingStates, setScrapingStates] = useState({}); // Tracks scraping per portal_id
+  const [selectedPortals, setSelectedPortals] = useState({}); // Tracks selection per portal_id
+  const [sendEmailOnComplete, setSendEmailOnComplete] = useState(true); // Email toggle checkbox
   const [activeDrawer, setActiveDrawer] = useState(null); // { portalId, type: 'current' | 'new', listings: [], title: '' }
   const [searchQuery, setSearchQuery] = useState('');
   const [viewJson, setViewJson] = useState(false);
@@ -32,6 +34,17 @@ function App() {
       if (!response.ok) throw new Error('Failed to fetch portals');
       const data = await response.json();
       setPortals(data);
+
+      // Initialize selectedPortals for any newly discovered portal_ids
+      setSelectedPortals(prev => {
+        const nextState = { ...prev };
+        data.forEach(p => {
+          if (nextState[p.id] === undefined) {
+            nextState[p.id] = true;
+          }
+        });
+        return nextState;
+      });
     } catch (err) {
       console.error(err);
       showToast('Could not load portal statuses from backend.', 'error');
@@ -42,76 +55,48 @@ function App() {
     fetchPortals();
   }, []);
 
-  // Trigger sequential scrape for all portals one by one and send email digest
-  const handleScrapeSequential = async () => {
-    setSequentialLoading(true);
-    showToast('Started sequential portal scan & mail workflow...', 'info');
-
-    let totalNew = 0;
-    let errors = [];
-
-    try {
-      for (let i = 0; i < portals.length; i++) {
-        const portal = portals[i];
-        setScrapingStates({ [portal.id]: true });
-        showToast(`[${i + 1}/${portals.length}] Scraping ${portal.name}...`, 'info');
-
-        try {
-          const response = await fetch(`${API_BASE}/trigger-scrape/${portal.id}`, {
-            method: 'POST',
-          });
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const data = await response.json();
-          totalNew += data.new_listings_count || 0;
-        } catch (err) {
-          console.error(`Scrape error for ${portal.name}:`, err);
-          errors.push(`${portal.name}`);
-        }
-
-        await fetchPortals();
-
-        if (i < portals.length - 1) {
-          await new Promise(r => setTimeout(r, 2000));
-        }
-      }
-
-      setScrapingStates({});
-      showToast('All portals scraped. Generating & sending email digest...', 'info');
-
-      // Dispatch email digest via dedicated backend endpoint
-      const emailRes = await fetch(`${API_BASE}/send-digest-email`, {
-        method: 'POST',
-      });
-      if (!emailRes.ok) throw new Error(`Email dispatch failed with status ${emailRes.status}`);
-      const emailData = await emailRes.json();
-
-      showToast(
-        `Scan & Mail complete! Scraped ${portals.length} portal(s), ${totalNew} new job(s). Email status: ${emailData.email_message}`,
-        'success'
-      );
-    } catch (err) {
-      console.error(err);
-      showToast('Failed to complete sequential scan and mail workflow.', 'error');
-    } finally {
-      setSequentialLoading(false);
-      setScrapingStates({});
-      await fetchPortals();
-    }
+  const togglePortalSelection = (portalId, isChecked) => {
+    setSelectedPortals(prev => ({
+      ...prev,
+      [portalId]: isChecked
+    }));
   };
 
-  // Trigger scrape for all portals sequentially
-  const handleScrapeAll = async () => {
-    setLoading(true);
-    showToast('Started sequential scraping across portals (RAM & Render optimized)...', 'info');
+  const handleSelectAll = () => {
+    const allChecked = {};
+    portals.forEach(p => {
+      allChecked[p.id] = true;
+    });
+    setSelectedPortals(allChecked);
+  };
+
+  const handleDeselectAll = () => {
+    const allUnchecked = {};
+    portals.forEach(p => {
+      allUnchecked[p.id] = false;
+    });
+    setSelectedPortals(allUnchecked);
+  };
+
+  // Trigger sequential scan for selected portals
+  const handleRunSelectedScans = async () => {
+    const selectedList = portals.filter(p => selectedPortals[p.id] !== false);
+    if (selectedList.length === 0) {
+      showToast('Please select at least one portal to scrape.', 'error');
+      return;
+    }
+
+    setSequentialLoading(true);
+    showToast(`Starting sequential scan of ${selectedList.length} selected portal(s)...`, 'info');
 
     let totalNew = 0;
     let errors = [];
 
     try {
-      for (let i = 0; i < portals.length; i++) {
-        const portal = portals[i];
+      for (let i = 0; i < selectedList.length; i++) {
+        const portal = selectedList[i];
         setScrapingStates({ [portal.id]: true });
-        showToast(`[${i + 1}/${portals.length}] Scraping ${portal.name}...`, 'info');
+        showToast(`[${i + 1}/${selectedList.length}] Scraping ${portal.name}...`, 'info');
 
         try {
           const response = await fetch(`${API_BASE}/trigger-scrape/${portal.id}`, {
@@ -127,21 +112,41 @@ function App() {
 
         await fetchPortals();
 
-        if (i < portals.length - 1) {
+        if (i < selectedList.length - 1) {
           await new Promise(r => setTimeout(r, 2000));
         }
       }
 
-      if (errors.length > 0) {
-        showToast(`Sequential scrape completed with errors on: ${errors.join(', ')}. Total new jobs: ${totalNew}`, 'error');
+      setScrapingStates({});
+
+      if (sendEmailOnComplete) {
+        showToast('Scan complete. Generating & sending email digest...', 'info');
+        try {
+          const emailRes = await fetch(`${API_BASE}/send-digest-email`, {
+            method: 'POST',
+          });
+          if (!emailRes.ok) throw new Error(`Email dispatch failed with status ${emailRes.status}`);
+          const emailData = await emailRes.json();
+          showToast(
+            `Sequential scan complete! Scraped ${selectedList.length} portal(s), ${totalNew} new job(s). Email status: ${emailData.email_message}`,
+            'success'
+          );
+        } catch (emailErr) {
+          console.error('Email error:', emailErr);
+          showToast(`Scan complete (${totalNew} new jobs), but email dispatch failed.`, 'error');
+        }
       } else {
-        showToast(`Sequential scrape completed! Found ${totalNew} new listings overall.`, 'success');
+        if (errors.length > 0) {
+          showToast(`Sequential scan completed with errors on: ${errors.join(', ')}. Total new jobs: ${totalNew}`, 'error');
+        } else {
+          showToast(`Sequential scan completed! Scraped ${selectedList.length} portal(s), ${totalNew} new job(s). (Email skipped)`, 'success');
+        }
       }
     } catch (err) {
       console.error(err);
-      showToast('Failed to complete sequential scrape.', 'error');
+      showToast('Failed to complete sequential scan.', 'error');
     } finally {
-      setLoading(false);
+      setSequentialLoading(false);
       setScrapingStates({});
       await fetchPortals();
     }
@@ -161,7 +166,7 @@ function App() {
 
       showToast(
         `Scraped ${portalName}! Found ${data.new_listings_count} new listing(s).`,
-        data.new_listings_count > 0 ? 'success' : 'success'
+        'success'
       );
 
       await fetchPortals();
@@ -203,6 +208,8 @@ function App() {
     )
     : [];
 
+  const selectedCount = portals.filter(p => selectedPortals[p.id] !== false).length;
+
   return (
     <div className="app-container">
       {/* Top Header */}
@@ -212,53 +219,87 @@ function App() {
           <p>Scrape, monitor, and identify newly released job opportunities using Playwright</p>
         </div>
         <div className="global-actions">
+          <label className="checkbox-toggle" title="Send email digest when sequential scan finishes">
+            <input
+              type="checkbox"
+              checked={sendEmailOnComplete}
+              onChange={e => setSendEmailOnComplete(e.target.checked)}
+              disabled={sequentialLoading || loading}
+            />
+            <span className="toggle-label">✉ Send Email Digest</span>
+          </label>
+
           <button
             className="btn-sequential"
-            onClick={handleScrapeSequential}
+            onClick={handleRunSelectedScans}
             disabled={loading || sequentialLoading || Object.values(scrapingStates).some(Boolean)}
           >
             {sequentialLoading ? (
               <>
-                <span className="spinner">↻</span> Running Sequential Scan & Mail...
+                <span className="spinner">↻</span> Running Scans ({selectedCount}/{portals.length})...
               </>
             ) : (
               <>
-                🔄 Run Sequential Scan & Mail
-              </>
-            )}
-          </button>
-          <button
-            className="btn-primary"
-            onClick={handleScrapeAll}
-            disabled={loading || sequentialLoading || Object.values(scrapingStates).some(Boolean)}
-          >
-            {loading ? (
-              <>
-                <span className="spinner">↻</span> Scraping All Portals...
-              </>
-            ) : (
-              <>
-                ⚡ Trigger All Adapters
+                🔄 Run Selected Scans ({selectedCount}/{portals.length})
               </>
             )}
           </button>
         </div>
       </header>
 
+      {/* Selection Toolbar */}
+      <div className="selection-toolbar">
+        <div className="toolbar-info">
+          <span className="selection-badge">
+            {selectedCount} of {portals.length} portals included for scan
+          </span>
+        </div>
+        <div className="toolbar-controls">
+          <button
+            className="btn-text"
+            onClick={handleSelectAll}
+            disabled={sequentialLoading || loading}
+          >
+            ✓ Select All
+          </button>
+          <span className="divider">|</span>
+          <button
+            className="btn-text"
+            onClick={handleDeselectAll}
+            disabled={sequentialLoading || loading}
+          >
+            ✕ Deselect All
+          </button>
+        </div>
+      </div>
+
       {/* Grid List of Job Portals */}
       <main className="portals-grid">
         {portals.map(portal => {
           const isScraping = scrapingStates[portal.id];
+          const isSelected = selectedPortals[portal.id] !== false;
+
           return (
-            <div className="portal-card" key={portal.id}>
+            <div className={`portal-card ${!isSelected ? 'deselected' : ''}`} key={portal.id}>
               <div className="card-header">
-                <div>
-                  <h3 className="portal-title">{portal.name}</h3>
-                  <span className="portal-slug">{portal.id}</span>
+                <div className="header-title-row">
+                  <label className="portal-select-label" title={isSelected ? "Include in scan" : "Excluded from scan"}>
+                    <input
+                      type="checkbox"
+                      className="portal-checkbox"
+                      checked={isSelected}
+                      onChange={e => togglePortalSelection(portal.id, e.target.checked)}
+                      disabled={sequentialLoading || loading || isScraping}
+                    />
+                  </label>
+                  <div>
+                    <h3 className="portal-title">{portal.name}</h3>
+                    <span className="portal-slug">{portal.id}</span>
+                  </div>
                 </div>
-                <div className={`status-badge ${isScraping ? 'scraping' : 'idle'}`}>
+                <div className={`status-badge ${isScraping ? 'scraping' : isSelected ? 'idle' : 'excluded'}`}>
                   <span className="status-dot"></span>
-                  {isScraping ? 'scraping' : 'idle'}
+                  {isScraping ? 'scraping' : isSelected ? 'included' : 'excluded'}
                 </div>
               </div>
 

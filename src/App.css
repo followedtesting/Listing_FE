@@ -475,3 +475,127 @@
 .toast.error {
   border-color: var(--color-rose);
 }
+
+/* Mail Toggle Checkbox in Header */
+.checkbox-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.checkbox-toggle:hover {
+  border-color: var(--color-indigo);
+  background: var(--bg-secondary);
+}
+
+.checkbox-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-indigo);
+  cursor: pointer;
+}
+
+.toggle-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* Selection Toolbar */
+.selection-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  padding: 12px 20px;
+  border-radius: 10px;
+}
+
+.selection-badge {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.toolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-text {
+  background: none;
+  border: none;
+  color: var(--color-indigo);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.btn-text:hover {
+  background-color: rgba(99, 102, 241, 0.15);
+  color: var(--text-primary);
+}
+
+.btn-text:disabled {
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+
+.divider {
+  color: var(--border-light);
+  font-size: 12px;
+}
+
+/* Portal Card Header Checkbox & Deselected State */
+.header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.portal-select-label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.portal-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-indigo);
+  cursor: pointer;
+}
+
+.portal-card.deselected {
+  opacity: 0.6;
+  border-style: dashed;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.portal-card.deselected:hover {
+  opacity: 0.85;
+  border-color: var(--color-indigo);
+}
+
+.status-badge.excluded {
+  background-color: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+}
+
+.status-badge.excluded .status-dot {
+  background-color: #64748b;
+}
+
