@@ -45,82 +45,105 @@ function App() {
   // Trigger sequential scrape for all portals one by one and send email digest
   const handleScrapeSequential = async () => {
     setSequentialLoading(true);
-    showToast('Started sequential scraping of portals (one by one)...', 'info');
+    showToast('Started sequential portal scan & mail workflow...', 'info');
 
-    // Set all portals to scraping state
-    const scrapingInitial = {};
-    portals.forEach(p => {
-      scrapingInitial[p.id] = true;
-    });
-    setScrapingStates(scrapingInitial);
+    let totalNew = 0;
+    let errors = [];
 
     try {
-      const response = await fetch(`${API_BASE}/trigger-scrape-sequential`, {
+      for (let i = 0; i < portals.length; i++) {
+        const portal = portals[i];
+        setScrapingStates({ [portal.id]: true });
+        showToast(`[${i + 1}/${portals.length}] Scraping ${portal.name}...`, 'info');
+
+        try {
+          const response = await fetch(`${API_BASE}/trigger-scrape/${portal.id}`, {
+            method: 'POST',
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          totalNew += data.new_listings_count || 0;
+        } catch (err) {
+          console.error(`Scrape error for ${portal.name}:`, err);
+          errors.push(`${portal.name}`);
+        }
+
+        await fetchPortals();
+
+        if (i < portals.length - 1) {
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+
+      setScrapingStates({});
+      showToast('All portals scraped. Generating & sending email digest...', 'info');
+
+      // Dispatch email digest via dedicated backend endpoint
+      const emailRes = await fetch(`${API_BASE}/send-digest-email`, {
         method: 'POST',
       });
-      if (!response.ok) throw new Error('Sequential scraping request failed');
-      const data = await response.json();
+      if (!emailRes.ok) throw new Error(`Email dispatch failed with status ${emailRes.status}`);
+      const emailData = await emailRes.json();
 
       showToast(
-        `Sequential scrape completed! Scraped ${data.total_portals_scraped} portal(s), ${data.total_new_listings} new job(s). Email status: ${data.email_message}`,
+        `Scan & Mail complete! Scraped ${portals.length} portal(s), ${totalNew} new job(s). Email status: ${emailData.email_message}`,
         'success'
       );
-
-      await fetchPortals();
     } catch (err) {
       console.error(err);
-      showToast('Failed to execute sequential scrape.', 'error');
+      showToast('Failed to complete sequential scan and mail workflow.', 'error');
     } finally {
       setSequentialLoading(false);
       setScrapingStates({});
+      await fetchPortals();
     }
   };
 
-  // Trigger scrape for all portals
+  // Trigger scrape for all portals sequentially
   const handleScrapeAll = async () => {
     setLoading(true);
-    showToast('Started sequential scraping of all portals (RAM optimized)...', 'info');
-    
-    // Set all portals to scraping state
-    const scrapingInitial = {};
-    portals.forEach(p => {
-      scrapingInitial[p.id] = true;
-    });
-    setScrapingStates(scrapingInitial);
+    showToast('Started sequential scraping across portals (RAM & Render optimized)...', 'info');
+
+    let totalNew = 0;
+    let errors = [];
 
     try {
-      const response = await fetch(`${API_BASE}/trigger-scrape`, {
-        method: 'POST',
-      });
-      if (!response.ok) throw new Error('Scraping request failed');
-      const data = await response.json();
-      
-      // Parse response summaries
-      const results = data.results || {};
-      let totalNew = 0;
-      let summaries = [];
+      for (let i = 0; i < portals.length; i++) {
+        const portal = portals[i];
+        setScrapingStates({ [portal.id]: true });
+        showToast(`[${i + 1}/${portals.length}] Scraping ${portal.name}...`, 'info');
 
-      Object.entries(results).forEach(([id, res]) => {
-        if (res.status === 'error') {
-          summaries.push(`${res.portal_name} failed: ${res.error}`);
-        } else {
-          totalNew += res.new_listings_count || 0;
+        try {
+          const response = await fetch(`${API_BASE}/trigger-scrape/${portal.id}`, {
+            method: 'POST',
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          totalNew += data.new_listings_count || 0;
+        } catch (err) {
+          console.error(`Scrape error for ${portal.name}:`, err);
+          errors.push(`${portal.name}`);
         }
-      });
 
-      if (summaries.length > 0) {
-        showToast(`Scrape completed with errors: ${summaries.join(', ')}`, 'error');
-      } else {
-        showToast(`Scrape completed! Found ${totalNew} new listings overall.`, 'success');
+        await fetchPortals();
+
+        if (i < portals.length - 1) {
+          await new Promise(r => setTimeout(r, 2000));
+        }
       }
-      
-      await fetchPortals();
+
+      if (errors.length > 0) {
+        showToast(`Sequential scrape completed with errors on: ${errors.join(', ')}. Total new jobs: ${totalNew}`, 'error');
+      } else {
+        showToast(`Sequential scrape completed! Found ${totalNew} new listings overall.`, 'success');
+      }
     } catch (err) {
       console.error(err);
-      showToast('Failed to trigger scraping.', 'error');
+      showToast('Failed to complete sequential scrape.', 'error');
     } finally {
       setLoading(false);
       setScrapingStates({});
+      await fetchPortals();
     }
   };
 
@@ -135,12 +158,12 @@ function App() {
       });
       if (!response.ok) throw new Error('Portal scraping failed');
       const data = await response.json();
-      
+
       showToast(
         `Scraped ${portalName}! Found ${data.new_listings_count} new listing(s).`,
         data.new_listings_count > 0 ? 'success' : 'success'
       );
-      
+
       await fetchPortals();
     } catch (err) {
       console.error(err);
@@ -157,7 +180,7 @@ function App() {
       const response = await fetch(`${API_BASE}/${endpoint}/${portalId}`);
       if (!response.ok) throw new Error(`Failed to load ${type} listings`);
       const data = await response.json();
-      
+
       setActiveDrawer({
         portalId,
         type,
@@ -173,11 +196,11 @@ function App() {
   };
 
   // Filter listings inside the drawer
-  const filteredListings = activeDrawer 
-    ? activeDrawer.listings.filter(job => 
-        job.role_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        job.jobid.toLowerCase().includes(searchQuery.toLowerCase())
-      )
+  const filteredListings = activeDrawer
+    ? activeDrawer.listings.filter(job =>
+      job.role_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      job.jobid.toLowerCase().includes(searchQuery.toLowerCase())
+    )
     : [];
 
   return (
@@ -189,9 +212,9 @@ function App() {
           <p>Scrape, monitor, and identify newly released job opportunities using Playwright</p>
         </div>
         <div className="global-actions">
-          <button 
-            className="btn-sequential" 
-            onClick={handleScrapeSequential} 
+          <button
+            className="btn-sequential"
+            onClick={handleScrapeSequential}
             disabled={loading || sequentialLoading || Object.values(scrapingStates).some(Boolean)}
           >
             {sequentialLoading ? (
@@ -204,9 +227,9 @@ function App() {
               </>
             )}
           </button>
-          <button 
-            className="btn-primary" 
-            onClick={handleScrapeAll} 
+          <button
+            className="btn-primary"
+            onClick={handleScrapeAll}
             disabled={loading || sequentialLoading || Object.values(scrapingStates).some(Boolean)}
           >
             {loading ? (
@@ -251,23 +274,23 @@ function App() {
               </div>
 
               <div className="card-actions">
-                <button 
-                  className="btn-secondary" 
+                <button
+                  className="btn-secondary"
                   onClick={() => handleShowListings(portal.id, portal.name, 'current')}
                   disabled={isScraping}
                 >
                   Current Listings
                 </button>
-                <button 
-                  className="btn-secondary" 
+                <button
+                  className="btn-secondary"
                   onClick={() => handleShowListings(portal.id, portal.name, 'new')}
                   disabled={isScraping}
                 >
                   New Listings
                 </button>
-                <button 
-                  className="btn-icon" 
-                  title="Run Single Scrape" 
+                <button
+                  className="btn-icon"
+                  title="Run Single Scrape"
                   onClick={() => handleScrapeSingle(portal.id, portal.name)}
                   disabled={isScraping}
                 >
@@ -292,14 +315,14 @@ function App() {
             </div>
 
             <div className="drawer-toolbar">
-              <input 
-                type="text" 
-                placeholder="Filter by title or job ID..." 
+              <input
+                type="text"
+                placeholder="Filter by title or job ID..."
                 className="search-input"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
               />
-              <button 
+              <button
                 className="toggle-view-btn"
                 onClick={() => setViewJson(!viewJson)}
               >
@@ -325,10 +348,10 @@ function App() {
                         <span>Job ID: <span className="job-badge-id">{job.jobid}</span></span>
                       </div>
                     </div>
-                    <a 
-                      href={job.job_listing_link} 
-                      className="btn-apply" 
-                      target="_blank" 
+                    <a
+                      href={job.job_listing_link}
+                      className="btn-apply"
+                      target="_blank"
                       rel="noopener noreferrer"
                     >
                       Apply ↗
