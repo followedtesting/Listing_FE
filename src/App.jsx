@@ -279,6 +279,23 @@ function App() {
           const isScraping = scrapingStates[portal.id];
           const isSelected = selectedPortals[portal.id] !== false;
 
+          const formatDate = (isoString) => {
+            if (!isoString) return 'Never';
+            try {
+              const d = new Date(isoString);
+              if (isNaN(d.getTime())) return 'Never';
+              return d.toLocaleString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+              });
+            } catch (e) {
+              return 'Never';
+            }
+          };
+
           return (
             <div className={`portal-card ${!isSelected ? 'deselected' : ''}`} key={portal.id}>
               <div className="card-header">
@@ -311,6 +328,31 @@ function App() {
                 <div className="stat-item">
                   <div className="stat-value new-count">{portal.new_listings_count}</div>
                   <div className="stat-label">New Diff</div>
+                </div>
+              </div>
+
+              <div className="card-run-info">
+                <div className="run-time-container" title={portal.last_run_at ? new Date(portal.last_run_at).toString() : 'No run recorded'}>
+                  <span className="run-icon">🕒</span>
+                  <span className="run-label">Last Run:</span>
+                  <span className="run-time">{formatDate(portal.last_run_at)}</span>
+                </div>
+                <div className="run-status-container">
+                  {portal.last_status === 'success' && (
+                    <span className="run-badge success" title="Last adapter run succeeded">
+                      <span className="badge-dot"></span> Success
+                    </span>
+                  )}
+                  {portal.last_status === 'failed' && (
+                    <span className="run-badge failed" title={portal.error_message ? `Failed: ${portal.error_message}` : 'Last adapter run failed'}>
+                      <span className="badge-dot"></span> Failed
+                    </span>
+                  )}
+                  {!portal.last_status && (
+                    <span className="run-badge never">
+                      <span className="badge-dot"></span> Never
+                    </span>
+                  )}
                 </div>
               </div>
 
