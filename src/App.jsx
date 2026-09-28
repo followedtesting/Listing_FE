@@ -62,6 +62,20 @@ function App() {
     }));
   };
 
+  const toggleFromHere = (portalIndex, isChecked) => {
+  setSelectedPortals(prev => {
+    const nextState = { ...prev };
+
+    portals.forEach((portal, index) => {
+      if (index >= portalIndex) {
+        nextState[portal.id] = isChecked;
+      }
+    });
+
+    return nextState;
+  });
+};
+
   const handleSelectAll = () => {
     const allChecked = {};
     portals.forEach(p => {
@@ -275,7 +289,7 @@ function App() {
 
       {/* Grid List of Job Portals */}
       <main className="portals-grid">
-        {portals.map(portal => {
+        {portals.map((portal, index) => {
           const isScraping = scrapingStates[portal.id];
           const isSelected = selectedPortals[portal.id] !== false;
 
@@ -308,6 +322,20 @@ function App() {
                       onChange={e => togglePortalSelection(portal.id, e.target.checked)}
                       disabled={sequentialLoading || loading || isScraping}
                     />
+                  </label>
+                  <label
+                    className="cascade-select-label"
+                    title="Toggle this adapter and all following adapters"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={portals
+                        .slice(index)
+                        .every(p => selectedPortals[p.id] !== false)}
+                      onChange={e => toggleFromHere(index, e.target.checked)}
+                      disabled={sequentialLoading || loading || isScraping}
+                    />
+                    <span>From here</span>
                   </label>
                   <div>
                     <h3 className="portal-title">{portal.name}</h3>
