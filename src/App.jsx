@@ -14,6 +14,9 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewJson, setViewJson] = useState(false);
   const [toast, setToast] = useState(null); // { message, type: 'success' | 'error' | 'info' }
+  const [queueStatus, setQueueStatus] = useState(null);
+  const [isQueueStarting, setIsQueueStarting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
   // Auto-clear Toast notifications
   useEffect(() => {
@@ -51,9 +54,41 @@ function App() {
     }
   };
 
+  // Fetch live queue status
+  const fetchQueueStatus = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/queue/status`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      setQueueStatus(data);
+      return data;
+    } catch (err) {
+      console.error('Error fetching queue status:', err);
+      return null;
+    }
+  };
+
   useEffect(() => {
     fetchPortals();
+    fetchQueueStatus();
   }, []);
+
+  // Poll queue status while queue is actively running
+  useEffect(() => {
+    let interval = null;
+    if (queueStatus?.is_running || queueStatus?.counts?.pending > 0 || queueStatus?.counts?.running > 0) {
+      interval = setInterval(async () => {
+        const data = await fetchQueueStatus();
+        if (data && !data.is_running && data.counts?.pending === 0 && data.counts?.running === 0) {
+          showToast('Backend Sandboxed Queue run finished! All records processed.', 'success');
+          await fetchPortals();
+        }
+      }, 3000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [queueStatus?.is_running, queueStatus?.counts?.pending, queueStatus?.counts?.running]);
 
   const togglePortalSelection = (portalId, isChecked) => {
     setSelectedPortals(prev => ({
@@ -166,6 +201,64 @@ function App() {
     }
   };
 
+  // Trigger Backend Database-Driven Queue (350MB Sandboxed Subprocess)
+  const handleStartBackendQueue = async () => {
+    const selectedList = portals
+      .filter(p => selectedPortals[p.id] !== false)
+      .map(p => p.id);
+
+    if (selectedList.length === 0) {
+      showToast('Please select at least one portal to include in the backend queue.', 'error');
+      return;
+    }
+
+    setIsQueueStarting(true);
+    showToast(`Queueing ${selectedList.length} portal(s) for 350MB sandboxed execution...`, 'info');
+
+    try {
+      const res = await fetch(`${API_BASE}/queue/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          portal_ids: selectedList.length === portals.length ? null : selectedList,
+          send_email: sendEmailOnComplete
+        })
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      showToast(data.message || 'Backend Queue execution started!', 'success');
+      await fetchQueueStatus();
+    } catch (err) {
+      console.error('Backend queue error:', err);
+      showToast('Failed to start backend queue execution.', 'error');
+    } finally {
+      setIsQueueStarting(false);
+    }
+  };
+
+  // Reset the backend queue back to idle
+  const handleResetQueue = async () => {
+    setIsResetting(true);
+    showToast('Resetting backend queue...', 'info');
+
+    try {
+      const res = await fetch(`${API_BASE}/queue/reset`, {
+        method: 'POST',
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      showToast('Backend queue reset back to idle.', 'success');
+      await fetchQueueStatus();
+      await fetchPortals();
+    } catch (err) {
+      console.error('Error resetting queue:', err);
+      showToast('Failed to reset backend queue.', 'error');
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   // Trigger scrape for a single portal
   const handleScrapeSingle = async (portalId, portalName) => {
     setScrapingStates(prev => ({ ...prev, [portalId]: true }));
@@ -243,23 +336,102 @@ function App() {
             <span className="toggle-label">✉ Send Email Digest</span>
           </label>
 
-          <button
-            className="btn-sequential"
-            onClick={handleRunSelectedScans}
-            disabled={loading || sequentialLoading || Object.values(scrapingStates).some(Boolean)}
-          >
-            {sequentialLoading ? (
-              <>
-                <span className="spinner">↻</span> Running Scans ({selectedCount}/{portals.length})...
-              </>
-            ) : (
-              <>
-                🔄 Run Selected Scans ({selectedCount}/{portals.length})
-              </>
-            )}
-          </button>
-        </div>
-      </header>
+            <button
+              className="btn-sequential"
+              onClick={handleRunSelectedScans}
+              disabled={loading || sequentialLoading || queueStatus?.is_running || Object.values(scrapingStates).some(Boolean)}
+            >
+              {sequentialLoading ? (
+                <>
+                  <span className="spinner">↻</span> Running Scans ({selectedCount}/{portals.length})...
+                </>
+              ) : (
+                <>
+                  🔄 Run Selected Scans ({selectedCount}/{portals.length})
+                </>
+              )}
+            </button>
+
+            {/* New Backend Sandboxed Queue Button */}
+            <button
+              className="btn-queue"
+              onClick={handleStartBackendQueue}
+              disabled={loading || sequentialLoading || isQueueStarting || queueStatus?.is_running}
+              title="Runs each adapter in an isolated 350MB RAM subprocess with automatic retries and Resend HTTPS email"
+            >
+              {queueStatus?.is_running ? (
+                <>
+                  <span className="spinner">⚡</span> Queue Running ({queueStatus?.counts?.success || 0 + queueStatus?.counts?.failed || 0}/{queueStatus?.counts?.total || portals.length})...
+                </>
+              ) : (
+                <>
+                  ⚡ Run Backend Queue ({selectedCount}/{portals.length})
+                </>
+              )}
+            </button>
+
+            {/* Reset Queue Button */}
+            <button
+              className="btn-reset-queue"
+              onClick={handleResetQueue}
+              disabled={isResetting}
+              title="Reset all pending/running queue items back to idle"
+            >
+              {isResetting ? (
+                <>
+                  <span className="spinner">↻</span> Resetting...
+                </>
+              ) : (
+                <>
+                  ⟲ Reset Queue
+                </>
+              )}
+            </button>
+          </div>
+        </header>
+
+        {/* Live Sandboxed Queue Banner */}
+        {queueStatus && (queueStatus.is_running || (queueStatus.counts?.pending || 0) > 0 || (queueStatus.counts?.running || 0) > 0) && (
+          <div className="queue-progress-banner">
+            <div className="queue-banner-header">
+              <div className="queue-status-title">
+                <span className="queue-pulse-dot"></span>
+                <strong>Sandboxed Queue Active:</strong>{' '}
+                {queueStatus.current_running ? (
+                  <span>Currently Scraping <strong>{queueStatus.current_running}</strong> in 350MB Subprocess...</span>
+                ) : (
+                  <span>Processing queue items...</span>
+                )}
+              </div>
+              <div className="queue-counts-badges">
+                <span className="badge-pill pending">Pending: {queueStatus.counts?.pending || 0}</span>
+                <span className="badge-pill running">Running: {queueStatus.counts?.running || 0}</span>
+                <span className="badge-pill success">Success: {queueStatus.counts?.success || 0}</span>
+                <span className="badge-pill failed">Failed: {queueStatus.counts?.failed || 0}</span>
+                <button
+                  className="btn-banner-reset"
+                  onClick={handleResetQueue}
+                  disabled={isResetting}
+                  title="Force cancel and reset queue"
+                >
+                  ✕ Reset Queue
+                </button>
+              </div>
+            </div>
+            <div className="queue-progress-bar-bg">
+              <div
+                className="queue-progress-bar-fill"
+                style={{
+                  width: `${Math.round(
+                    (((queueStatus.counts?.success || 0) + (queueStatus.counts?.failed || 0)) /
+                      Math.max(queueStatus.counts?.total || 1, 1)) *
+                      100
+                  )}%`
+                }}
+              ></div>
+            </div>
+          </div>
+        )}
 
       {/* Selection Toolbar */}
       <div className="selection-toolbar">
